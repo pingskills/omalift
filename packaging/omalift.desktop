@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Omalift
+GenericName=Background Remover
+Comment=Lift a person off a green screen photo
+Exec=omalift %f
+Icon=omalift
+Terminal=false
+Categories=Graphics;2DGraphics;RasterGraphics;
+MimeType=image/jpeg;image/png;image/webp;image/bmp;image/tiff;
+Keywords=background;remove;cutout;green screen;chroma key;transparent;
+StartupWMClass=omalift

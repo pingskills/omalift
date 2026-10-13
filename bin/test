@@ -1,0 +1,22 @@
+#!/usr/bin/env sh
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+BUILD_DIR="$ROOT/build/tests"
+
+if command -v qmake6 >/dev/null 2>&1; then
+  QMAKE=qmake6
+elif command -v qmake >/dev/null 2>&1; then
+  QMAKE=qmake
+else
+  echo "qmake6 or qmake is required to test omalift." >&2
+  exit 1
+fi
+
+mkdir -p "$BUILD_DIR"
+cd "$BUILD_DIR"
+
+"$QMAKE" "$ROOT/tests/tests.pro"
+make -j"$(nproc 2>/dev/null || echo 1)"
+# The window test draws without a display, so the suite runs anywhere.
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software ./omalift_tests "$@"

@@ -1,0 +1,32 @@
+# Maintainer: Jeff Plumb <dark.tire0486@plumbmail.com>
+
+pkgname=omalift
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Dead-simple green screen cutouts built with Qt Quick'
+arch=('x86_64' 'aarch64')
+url='https://github.com/pingskills/omalift'
+license=('MIT')
+install='omalift.install'
+depends=('glibc' 'hicolor-icon-theme' 'libgcc' 'libstdc++' 'qt6-base' 'qt6-declarative')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+# Replace with the real checksum once the v$pkgver tag is published: run `updpkgsums`.
+sha256sums=('SKIP')
+
+build() {
+  cd "$pkgname-$pkgver"
+  ./bin/build
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  ./bin/test
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 build/omalift "$pkgdir/usr/bin/omalift"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 packaging/omalift.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/omalift.svg"
+  install -Dm644 packaging/omalift.desktop "$pkgdir/usr/share/applications/omalift.desktop"
+}

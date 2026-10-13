@@ -1,0 +1,16 @@
+# Build output
+/build/
+*.o
+*.moc
+moc_*.cpp
+qrc_*.cpp
+.qmake.stash
+Makefile
+
+# Arch packaging output (when building in packaging/arch)
+/packaging/arch/src/
+/packaging/arch/pkg/
+/packaging/arch/*.tar.gz
+/packaging/arch/*.tar.zst
+/packaging/arch/*.pkg.tar.*
+/packaging/arch/*.log
