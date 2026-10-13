@@ -15,7 +15,8 @@ ApplicationWindow {
 
     readonly property color accent: backend.themeAccent
     readonly property color accentForeground: backend.themeAccentForeground
-    readonly property bool ready: backend.hasImage && backend.screenFound
+    readonly property bool ready: backend.ready
+    readonly property bool keying: backend.mode === "screen"
     // What the cutout is shown against. A cutout that looks clean on the
     // checkerboard can still carry a fringe that only shows on a flat colour.
     readonly property var backdrops: ["Checkerboard", "White", "Black", "Pink"]
@@ -80,6 +81,9 @@ ApplicationWindow {
 
     Shortcut { sequences: [StandardKey.Open]; onActivated: win.openPhoto() }
     Shortcut { sequences: [StandardKey.Save]; onActivated: win.savePhoto() }
+    Shortcut { sequence: "1"; enabled: backend.hasImage; onActivated: backend.mode = "screen" }
+    Shortcut { sequence: "2"; enabled: backend.hasImage; onActivated: backend.mode = "fast" }
+    Shortcut { sequence: "3"; enabled: backend.hasImage; onActivated: backend.mode = "best" }
     Shortcut { sequence: "B"; enabled: win.ready; onActivated: win.nextBackdrop() }
     Shortcut { sequence: "R"; enabled: win.ready; onActivated: backend.reset() }
     Shortcut { sequence: "?"; onActivated: win.helpVisible = !win.helpVisible }
@@ -129,12 +133,12 @@ ApplicationWindow {
 
                 Label {
                     Layout.alignment: Qt.AlignHCenter
-                    text: "Drop a green screen photo here"
+                    text: "Drop a photo here"
                     font.pixelSize: 24
                 }
                 Label {
                     Layout.alignment: Qt.AlignHCenter
-                    text: "The green is removed and the person saved as a PNG cutout."
+                    text: "The background is removed and the person saved as a PNG cutout."
                     opacity: 0.6
                 }
                 Button {
@@ -254,18 +258,74 @@ ApplicationWindow {
             }
         }
 
-        // Shown instead of the sliders when the photo has no green screen.
-        Label {
+        // How the background is removed.
+        RowLayout {
             Layout.fillWidth: true
-            visible: backend.hasImage && !backend.screenFound
-            wrapMode: Text.WordWrap
-            text: "omalift only removes green screens so far. This photo needs a different tool."
-            opacity: 0.7
+            visible: backend.hasImage
+            spacing: 8
+
+            component ModeButton: Button {
+                property string mode
+                readonly property bool chosen: backend.mode === mode
+                Material.elevation: 0
+                Material.background: chosen ? win.accent : "#26262b"
+                Material.foreground: chosen ? win.accentForeground : "#ffffff"
+                onClicked: backend.mode = mode
+            }
+
+            ModeButton { text: "Green screen"; mode: "screen" }
+            ModeButton { text: "Fast"; mode: "fast" }
+            ModeButton { text: "Best"; mode: "best" }
+            Label {
+                Layout.fillWidth: true
+                elide: Text.ElideRight
+                opacity: 0.6
+                text: win.keying ? "Removes a green backdrop, instantly."
+                    : backend.mode === "fast" ? "Any background. The quicker model."
+                    : "Any background. Slower, with finer edges."
+            }
+        }
+
+        // What a model still needs before there is a cutout to show.
+        RowLayout {
+            Layout.fillWidth: true
+            visible: backend.hasImage && !win.keying && !win.ready
+            spacing: 12
+
+            Label {
+                Layout.fillWidth: true
+                visible: !backend.modelInstalled && !backend.downloading
+                wrapMode: Text.WordWrap
+                text: "This needs its model downloaded once (" + backend.modelSize + ")."
+            }
+            Button {
+                visible: !backend.modelInstalled && !backend.downloading
+                text: "Download"
+                Material.background: win.accent
+                Material.foreground: win.accentForeground
+                onClicked: backend.downloadModel()
+            }
+            ProgressBar {
+                Layout.fillWidth: true
+                visible: backend.downloading
+                value: backend.downloadProgress
+            }
+            Button {
+                visible: backend.downloading
+                text: "Cancel"
+                flat: true
+                onClicked: backend.cancelDownload()
+            }
+            ProgressBar {
+                Layout.fillWidth: true
+                visible: backend.working
+                indeterminate: true
+            }
         }
 
         RowLayout {
             Layout.fillWidth: true
-            visible: win.ready
+            visible: win.ready && win.keying
             spacing: 20
 
             component Knob: ColumnLayout {
@@ -374,6 +434,7 @@ ApplicationWindow {
             font.family: "monospace"
             text: "Ctrl+O   Open a photo\n"
                 + "Ctrl+S   Save the cutout\n"
+                + "1 2 3    Green screen, Fast, Best\n"
                 + "Space    Hold to see the original photo\n"
                 + "B        Change the backdrop\n"
                 + "R        Reset the sliders and the crop\n"

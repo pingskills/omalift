@@ -43,6 +43,21 @@ Backend::Backend(LiftProvider *provider, QObject *parent)
     };
     connect(&m_themeWatcher, &QFileSystemWatcher::fileChanged, this, themeChanged);
     connect(&m_themeWatcher, &QFileSystemWatcher::directoryChanged, this, themeChanged);
+
+    connect(&m_download, &ModelDownload::progress, this, [this](qint64 received, qint64 total) {
+        m_downloadProgress = total > 0 ? double(received) / total : 0.0;
+        emit downloadProgressChanged();
+    });
+    connect(&m_download, &ModelDownload::finished, this, [this](const QString &modelId, bool ok, const QString &error) {
+        if (!error.isEmpty()) {
+            setStatus(error);
+            emit failed(error);
+        }
+        emit stateChanged();
+        // Carry straight on to what the download was for.
+        if (ok && modelId == m_mode)
+            enterMode();
+    });
 }
 
 Backend::~Backend() = default;
@@ -148,7 +163,15 @@ bool Backend::load(const QUrl &url) {
     m_screen = key::detectScreen(m_preview);
     m_settings = key::Settings();
     m_suggestedCrop = key::screenExtent(m_preview, m_screen);
-    m_crop = m_suggestedCrop;
+    m_masks.clear();
+    m_queuedId.clear();
+    // A green screen is keyed, which is instant. Anything else goes to a
+    // model: whichever is already here, the quicker one first.
+    if (m_screen.found)
+        m_mode = QStringLiteral("screen");
+    else
+        m_mode = !matte::installed(matte::fast()) && matte::installed(matte::best()) ? matte::best().id : matte::fast().id;
+    m_crop = defaultCrop();
 
     m_provider->setOriginal(m_preview);
     // Until the first key lands the photo itself is shown.
@@ -159,14 +182,153 @@ bool Backend::load(const QUrl &url) {
     emit settingsChanged();
     emit cropChanged();
     emit previewChanged();
-
-    if (m_screen.found) {
-        setStatus(QStringLiteral("%1 × %2").arg(image.width()).arg(image.height()));
-        refreshPreview();
-    } else {
-        setStatus(QStringLiteral("No green screen found in this photo."));
-    }
+    enterMode();
     return true;
+}
+
+bool Backend::ready() const {
+    if (!hasImage())
+        return false;
+    return m_mode == QLatin1String("screen") ? m_screen.found : m_masks.contains(m_mode);
+}
+
+bool Backend::modelInstalled() const {
+    const matte::Model *model = matte::byId(m_mode);
+    return !model || matte::installed(*model);
+}
+
+QString Backend::modelSize() const {
+    const matte::Model *model = matte::byId(m_mode);
+    return model ? matte::sizeLabel(*model) : QString();
+}
+
+// A green screen photo is cropped to its cloth; a model looks at everything.
+QRectF Backend::defaultCrop() const {
+    return m_mode == QLatin1String("screen") ? m_suggestedCrop : QRectF(0, 0, 1, 1);
+}
+
+void Backend::setMode(const QString &mode) {
+    if (mode == m_mode || (mode != QLatin1String("screen") && !matte::byId(mode)))
+        return;
+    m_mode = mode;
+    setCrop(defaultCrop());
+    enterMode();
+}
+
+// Shows whatever the current mode has for this photo, and sets off whatever
+// it still needs.
+void Backend::enterMode() {
+    emit stateChanged();
+    if (!hasImage())
+        return;
+
+    const QString size = QStringLiteral("%1 × %2").arg(m_image.width()).arg(m_image.height());
+    if (m_mode == QLatin1String("screen")) {
+        setStatus(m_screen.found ? size : QStringLiteral("No green screen found in this photo. Try Fast or Best."));
+        refreshPreview();
+        return;
+    }
+    if (m_masks.contains(m_mode)) {
+        setStatus(size);
+        refreshPreview();
+        return;
+    }
+    // Nothing to show yet, so the photo itself stays up.
+    m_provider->setLifted(m_preview);
+    ++m_revision;
+    emit previewChanged();
+    if (modelInstalled())
+        startMatte(m_mode);
+    else if (!downloading())
+        setStatus(size);
+}
+
+void Backend::startMatte(const QString &modelId) {
+    const matte::Model *model = matte::byId(modelId);
+    if (!model || !hasImage())
+        return;
+    if (!m_mattingId.isEmpty()) {
+        if (m_mattingId != modelId)
+            m_queuedId = modelId;
+        return;
+    }
+    m_mattingId = modelId;
+    setStatus(QStringLiteral("Cutting out… this can take up to a minute."));
+    emit stateChanged();
+
+    struct Matted {
+        QImage mask;
+        QString error;
+        std::shared_ptr<matte::Session> session;
+    };
+    // A loaded model is kept for the next photo; loading one is slow.
+    std::shared_ptr<matte::Session> session = m_sessionId == modelId ? m_session : nullptr;
+    m_session.reset();
+    m_sessionId.clear();
+
+    const int generation = m_generation;
+    auto *watcher = new QFutureWatcher<Matted>(this);
+    connect(watcher, &QFutureWatcher<Matted>::finished, this, [this, watcher, generation, modelId] {
+        watcher->deleteLater();
+        const Matted result = watcher->result();
+        m_mattingId.clear();
+        m_session = result.session;
+        m_sessionId = result.session ? modelId : QString();
+
+        if (generation == m_generation) {
+            if (result.mask.isNull()) {
+                const QString message = QStringLiteral("Could not cut this photo out: %1").arg(result.error);
+                setStatus(message);
+                emit failed(message);
+            } else {
+                m_masks.insert(modelId, result.mask);
+            }
+        }
+        const QString queued = m_queuedId;
+        m_queuedId.clear();
+        if (generation != m_generation) {
+            // A different photo was opened meanwhile; start over for that one.
+            enterMode();
+        } else if (!queued.isEmpty() && !m_masks.contains(queued)) {
+            if (modelId == m_mode && m_masks.contains(modelId))
+                enterMode();
+            startMatte(queued);
+        } else if (modelId == m_mode && m_masks.contains(modelId)) {
+            enterMode();
+        } else {
+            emit stateChanged();
+        }
+    });
+    watcher->setFuture(QtConcurrent::run([image = m_image, path = matte::modelPath(*model), session]() mutable {
+        Matted result;
+        if (!session) {
+            session = std::make_shared<matte::Session>();
+            if (!session->open(path, &result.error))
+                return result;
+        }
+        result.mask = session->mask(image, &result.error);
+        result.session = session;
+        return result;
+    }));
+}
+
+void Backend::downloadModel() {
+    const matte::Model *model = matte::byId(m_mode);
+    if (!model || m_download.running() || matte::installed(*model))
+        return;
+    m_downloadId = model->id;
+    m_downloadProgress = 0.0;
+    emit downloadProgressChanged();
+    setStatus(QStringLiteral("Downloading the %1 model (%2)…").arg(model->label, matte::sizeLabel(*model)));
+    m_download.start(*model);
+    emit stateChanged();
+}
+
+void Backend::cancelDownload() {
+    if (!m_download.running())
+        return;
+    m_download.cancel();
+    setStatus(QString());
 }
 
 void Backend::changeSetting(double &setting, double value) {
@@ -193,14 +355,25 @@ void Backend::setCrop(const QRectF &crop) {
 void Backend::reset() {
     m_settings = key::Settings();
     emit settingsChanged();
-    setCrop(m_suggestedCrop);
+    setCrop(defaultCrop());
     refreshPreview();
 }
 
 // One key runs at a time. A slider that moves while one is running just marks
 // the result stale, and the latest settings are keyed as soon as it lands.
 void Backend::refreshPreview() {
-    if (!hasImage() || !m_screen.found)
+    if (!hasImage())
+        return;
+    if (m_mode != QLatin1String("screen")) {
+        // A model's mask is already made; laying it over the preview is quick.
+        if (!m_masks.contains(m_mode))
+            return;
+        m_provider->setLifted(matte::withMask(m_preview, m_masks.value(m_mode)));
+        ++m_revision;
+        emit previewChanged();
+        return;
+    }
+    if (!m_screen.found)
         return;
     if (m_previewRunning) {
         m_previewStale = true;
@@ -214,7 +387,8 @@ void Backend::refreshPreview() {
     connect(watcher, &QFutureWatcher<QImage>::finished, this, [this, watcher, generation] {
         watcher->deleteLater();
         m_previewRunning = false;
-        if (generation == m_generation) {
+        // Dropped if the photo or the mode changed while it was being keyed.
+        if (generation == m_generation && m_mode == QLatin1String("screen")) {
             m_provider->setLifted(watcher->result());
             ++m_revision;
             emit previewChanged();
@@ -234,7 +408,7 @@ QUrl Backend::suggestedSaveUrl() const {
 }
 
 void Backend::save(const QUrl &destination) {
-    if (!hasImage() || !m_screen.found || m_busy)
+    if (!ready() || m_busy)
         return;
 
     QString path = destination.toLocalFile();
@@ -264,9 +438,11 @@ void Backend::save(const QUrl &destination) {
                       .arg(result.size.height()));
         emit saved(path);
     });
-    watcher->setFuture(QtConcurrent::run([image = m_image, screen = m_screen, settings = m_settings, crop = m_crop, path] {
+    const bool keyed = m_mode == QLatin1String("screen");
+    watcher->setFuture(QtConcurrent::run([image = m_image, screen = m_screen, settings = m_settings, crop = m_crop,
+                                          mask = m_masks.value(m_mode), keyed, path] {
         Saved result;
-        const QImage lifted = key::cutout(image, screen, settings, crop);
+        const QImage lifted = keyed ? key::cutout(image, screen, settings, crop) : matte::cutout(image, mask, crop);
         if (lifted.isNull())
             return result;
         result.size = lifted.size();

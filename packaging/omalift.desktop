@@ -2,7 +2,7 @@
 Type=Application
 Name=Omalift
 GenericName=Background Remover
-Comment=Lift a person off a green screen photo
+Comment=Lift a person off a photo
 Exec=omalift %f
 Icon=omalift
 Terminal=false

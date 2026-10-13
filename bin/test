@@ -16,7 +16,7 @@ fi
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
-"$QMAKE" "$ROOT/tests/tests.pro"
+"$QMAKE" "$ROOT/tests/tests.pro" ${ONNXRUNTIME_PREFIX:+ONNXRUNTIME_PREFIX="$ONNXRUNTIME_PREFIX"}
 make -j"$(nproc 2>/dev/null || echo 1)"
 # The window test draws without a display, so the suite runs anywhere.
 QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software ./omalift_tests "$@"
