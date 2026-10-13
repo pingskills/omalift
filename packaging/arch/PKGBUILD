@@ -1,7 +1,7 @@
 # Maintainer: Jeff Plumb <dark.tire0486@plumbmail.com>
 
 pkgname=omalift
-pkgver=0.2.0
+pkgver=0.2.1
 pkgrel=1
 pkgdesc='Dead-simple cutouts of people from photos, built with Qt Quick'
 arch=('x86_64' 'aarch64')
@@ -10,7 +10,7 @@ license=('MIT')
 install='omalift.install'
 depends=('glibc' 'hicolor-icon-theme' 'libgcc' 'libstdc++' 'onnxruntime' 'qt6-base' 'qt6-declarative')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('536731a3835ee4b570b769eff37d68ccc28eb6a8f2afd872fded366f8288debb')
+sha256sums=('SKIP')
 
 build() {
   cd "$pkgname-$pkgver"

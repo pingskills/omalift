@@ -38,8 +38,9 @@ Screen detectScreen(const QImage &image);
 // has no green fringe on any new background.
 QImage lift(const QImage &image, const Screen &screen, const Settings &settings);
 
-// Clears stray specks the key left behind (creases, sensor noise) by dropping
-// every separate piece smaller than `minFraction` of the image.
+// Clears what the key left behind that is not the subject: every separate
+// piece smaller than `minFraction` of the image (creases, sensor noise), and
+// every sliver only a few pixels thick, such as the line left along a crop.
 void removeSpecks(QImage &lifted, double minFraction = 0.00005);
 
 // A suggested crop, as fractions of the photo: the left, right and top limits

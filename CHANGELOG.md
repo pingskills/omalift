@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- A green screen cutout no longer keeps a thin line where the crop ran along the edge of the cloth, so it is trimmed to the person again.
+
 ## 0.2.0
 
 - Fast and Best: two models that cut a person out of any background, for photos not taken against a green screen. Each downloads the first time it is picked.

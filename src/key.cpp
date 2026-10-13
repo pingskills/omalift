@@ -144,48 +144,62 @@ void removeSpecks(QImage &lifted, double minFraction) {
     const int w = lifted.width();
     const int h = lifted.height();
     const int smallest = qMax(16, int(double(w) * h * minFraction));
+    // A piece this thin is a sliver, however long: the line a crop leaves
+    // where it runs along the edge of the cloth, say.
+    const int thinnest = qMax(3, qMin(w, h) * 3 / 1000);
     QVector<uchar> seen(w * h, 0);
     std::vector<int> queue;
-    std::vector<int> piece;
 
     const auto visible = [&](int index) {
         const QRgb *line = reinterpret_cast<const QRgb *>(lifted.constScanLine(index / w));
         return qAlpha(line[index % w]) >= kVisible;
     };
 
-    for (int start = 0; start < w * h; ++start) {
-        if (seen[start] || !visible(start))
-            continue;
-
-        // Flood the piece this pixel belongs to. Its pixels are only listed
-        // while it could still turn out to be a speck, so the subject itself
-        // never costs more than the `seen` map.
-        queue.assign(1, start);
-        piece.clear();
-        seen[start] = 1;
+    // Walks the piece a pixel belongs to. Measuring marks each pixel as seen;
+    // erasing clears each pixel instead, which stops it being walked twice.
+    struct Piece {
         int size = 0;
+        int left, right, top, bottom;
+    };
+    const auto walk = [&](int start, bool erase) {
+        Piece piece;
+        piece.left = piece.right = start % w;
+        piece.top = piece.bottom = start / w;
+        const auto visit = [&](int index) {
+            if (erase)
+                reinterpret_cast<QRgb *>(lifted.scanLine(index / w))[index % w] = 0;
+            else
+                seen[index] = 1;
+            queue.push_back(index);
+        };
+        queue.clear();
+        visit(start);
         while (!queue.empty()) {
             const int index = queue.back();
             queue.pop_back();
-            if (++size <= smallest)
-                piece.push_back(index);
-
             const int x = index % w;
             const int y = index / w;
+            ++piece.size;
+            piece.left = qMin(piece.left, x);
+            piece.right = qMax(piece.right, x);
+            piece.top = qMin(piece.top, y);
+            piece.bottom = qMax(piece.bottom, y);
             const int next[4] = {x > 0 ? index - 1 : -1, x < w - 1 ? index + 1 : -1,
                                  y > 0 ? index - w : -1, y < h - 1 ? index + w : -1};
-            for (const int neighbour : next) {
-                if (neighbour < 0 || seen[neighbour] || !visible(neighbour))
-                    continue;
-                seen[neighbour] = 1;
-                queue.push_back(neighbour);
-            }
+            for (const int neighbour : next)
+                if (neighbour >= 0 && visible(neighbour) && (erase || !seen[neighbour]))
+                    visit(neighbour);
         }
+        return piece;
+    };
 
-        if (size >= smallest)
+    for (int start = 0; start < w * h; ++start) {
+        if (seen[start] || !visible(start))
             continue;
-        for (const int index : piece)
-            reinterpret_cast<QRgb *>(lifted.scanLine(index / w))[index % w] = 0;
+        const Piece piece = walk(start, false);
+        const int thickness = qMin(piece.right - piece.left, piece.bottom - piece.top) + 1;
+        if (piece.size < smallest || thickness <= thinnest)
+            walk(start, true);
     }
 }
 
@@ -224,9 +238,18 @@ QRectF screenExtent(const QImage &source, const Screen &screen) {
                 return i + 1;
         return int(counts.size());
     };
-    const int left = first(columns, qMax(1, h * 15 / 100));
-    const int right = last(columns, qMax(1, h * 15 / 100));
-    const int top = first(rows, qMax(1, w * 15 / 100));
+    int left = first(columns, qMax(1, h * 15 / 100));
+    int right = last(columns, qMax(1, h * 15 / 100));
+    int top = first(rows, qMax(1, w * 15 / 100));
+    // Where the cloth ends inside the frame its edge is a blur of cloth and
+    // room, too mixed to key. The crop steps just inside it.
+    const int inset = 2;
+    if (left > 0)
+        left += inset;
+    if (right < w)
+        right -= inset;
+    if (top > 0)
+        top += inset;
     if (right <= left || top >= h)
         return whole;
     return QRectF(double(left) / w, double(top) / h, double(right - left) / w, double(h - top) / h);

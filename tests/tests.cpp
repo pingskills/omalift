@@ -414,10 +414,14 @@ private slots:
         painter.fillRect(QRect(300, 300, 400, 600), kShirt);
         painter.fillRect(QRect(50, 50, 3, 3), kShirt);
         painter.fillRect(QRect(900, 100, 12, 12), Qt::white);
+        // A line along the top, as a crop leaves on the edge of the cloth.
+        painter.fillRect(QRect(0, 0, 1000, 2), kShirt);
         painter.end();
 
         key::removeSpecks(lifted);
         QCOMPARE(qAlpha(lifted.pixel(51, 51)), 0);
+        QCOMPARE(qAlpha(lifted.pixel(500, 1)), 0);
+        QCOMPARE(key::subjectBounds(lifted, 0), QRect(300, 100, 612, 800));
         QCOMPARE(lifted.pixelColor(500, 600), kShirt);
         // A ball in the air is small, but it is not noise.
         QCOMPARE(lifted.pixelColor(905, 105), QColor(Qt::white));
@@ -441,6 +445,26 @@ private slots:
         const QImage lifted = key::cutout(photo, greenScreen(), key::Settings(), crop);
         QCOMPARE(lifted.size(), QSize(64, 182));
         QCOMPARE(lifted.pixelColor(30, 100), kShirt);
+    }
+
+    void leavesNoLineWhereTheCropMeetsABlurredClothEdge() {
+        // The same hung cloth, but photographed: its edges are soft.
+        QImage photo(800, 600, QImage::Format_ARGB32);
+        photo.fill(QColor(150, 150, 150));
+        QPainter painter(&photo);
+        painter.fillRect(QRect(160, 60, 480, 540), kGreen);
+        painter.end();
+        photo = photo.scaled(200, 150, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                    .scaled(800, 600, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        QPainter person(&photo);
+        person.fillRect(QRect(340, 240, 120, 360), kShirt);
+        person.end();
+
+        const key::Screen screen = key::detectScreen(photo);
+        QVERIFY(screen.found);
+        const QImage lifted = key::cutout(photo, screen, key::Settings(), key::screenExtent(photo, screen));
+        // Trimmed to the person, with nothing left along the top or sides.
+        QCOMPARE(lifted.size(), QSize(124, 362));
     }
 
     void keepsTheWholePhotoWhenTheBackdropFillsIt() {
