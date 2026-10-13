@@ -10,7 +10,7 @@ license=('MIT')
 install='omalift.install'
 depends=('glibc' 'hicolor-icon-theme' 'libgcc' 'libstdc++' 'onnxruntime' 'qt6-base' 'qt6-declarative')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('f2e0d840471794d528f3b9cf4323eda87d041ab886d7863e11bd604fd1791582')
 
 build() {
   cd "$pkgname-$pkgver"
