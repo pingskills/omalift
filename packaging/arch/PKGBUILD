@@ -10,8 +10,7 @@ license=('MIT')
 install='omalift.install'
 depends=('glibc' 'hicolor-icon-theme' 'libgcc' 'libstdc++' 'onnxruntime' 'qt6-base' 'qt6-declarative')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-# Replace with the real checksum once the v$pkgver tag is published: run `updpkgsums`.
-sha256sums=('SKIP')
+sha256sums=('536731a3835ee4b570b769eff37d68ccc28eb6a8f2afd872fded366f8288debb')
 
 build() {
   cd "$pkgname-$pkgver"
